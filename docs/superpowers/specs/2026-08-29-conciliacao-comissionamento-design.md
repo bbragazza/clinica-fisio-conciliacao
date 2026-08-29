@@ -40,7 +40,7 @@ Escala: entre **10 e 15 profissionais**. Uso por 1-2 pessoas (secretária + Bert
 - **Cálculo automático do repasse por fisioterapeuta**: sessões válidas × valor × percentual do acordo daquele profissional, com **detalhamento por paciente/sessão** para permitir auditoria (poder responder "por que esse valor?" abrindo o detalhe).
 - **Relatório de repasse por fisioterapeuta** (visualização em tela + exportação, ex. PDF ou planilha). A transferência bancária em si continua manual, fora do app.
 - **Ciclo de uso:** conciliação parcial **semanal** + fechamento **mensal**.
-- **Ambiente:** roda local, em **um único computador** da clínica. Sem exigência de nuvem/acesso remoto na v1.
+- **Ambiente:** roda em uma **VPS própria (Hostinger + Coolify)**, acessível via navegador através de um code-server — não é mais um único computador físico da clínica, mas o uso continua restrito a secretária(s) + Berta (ver seção 2), sem necessidade de acesso concorrente multiusuário na v1. (Decisão atualizada em 29/08/2026, ver `docs/setup-vps-clinica.md`.)
 
 ---
 
