@@ -11,7 +11,15 @@
 - Code-server subido via Coolify
 - API tokens gerados: Coolify e Cloudflare
 
-**🔲 Falta (tudo dentro do terminal do code-server):** ver checklist na seção 3.
+**🔲 Falta:** ver checklist na seção 3.
+
+## Como executar este checklist
+
+**Não** dá pra simplesmente colar este arquivo inteiro no Claude Code do terminal da Hostinger e pedir pra ele fazer tudo — a maior parte dos itens é específica do filesystem do container (código instalado, login interativo, segredos) e fica mais limpo rodar direto de dentro do code-server, não via `docker exec` remoto. A sequência certa:
+
+1. **No Claude Code do terminal da Hostinger (host):** resolver só os itens **3.1** e **3.9** — são ações via API do Coolify (checar volume, provisionar Postgres), não tocam no filesystem do container nem exigem login interativo.
+2. **No terminal do code-server (`code.neria.tech`), manualmente:** só o item **3.2** (instalar e logar o `claude` — uns 2 minutos; o `git clone` do 3.3 não precisa de login, o repo é público).
+3. **De volta na mesma sessão do Claude Code, agora rodando dentro do container:** apontar ela pra este arquivo e pedir pra seguir o checklist a partir do **3.3** em diante. A partir daqui ela se constrói sozinha, incluindo pedir pro Bruno completar as partes interativas (`gh auth login`, colar a chave pública do bridge SSH no host).
 
 ---
 
