@@ -44,7 +44,12 @@ Duas coisas com nomes parecidos, ambientes completamente separados:
 │  │                       │   │ 🔲 gh CLI + cofre ~/.secrets │        │
 │  │                       │   │ 🔲 Node + Playwright         │        │
 │  │                       │   │ 🔲 /workspace                │        │
-│  └─────────────────────┘   └──────────────────────────┘        │
+│  │                       │   │ 🔲 chave SSH → root do host  │        │
+│  └─────────────────────┘   └──────────┬───────────────────┘        │
+│                                        │ ssh (chave dedicada)        │
+│                                        ▼                             │
+│                              acessa/gerencia os containers            │
+│                              irmãos como se estivesse no host         │
 │  ┌─────────────────────┐                                       │
 │  │ Container: Postgres    │  🔲 a provisionar                    │
 │  └─────────────────────┘                                       │
@@ -177,7 +182,39 @@ npm install -g playwright
 npx playwright install --with-deps
 ```
 
-### 3.8 Banco de dados
+### 3.8 Bridge SSH: code-server → host (pra gerenciar containers "como se estivesse no host")
+
+É a mesma dor que já resolvemos neste workspace aqui — a mecânica é simples: uma **chave SSH dedicada**, gerada dentro do container, com a chave pública autorizada no `root` do host. Nada de montar o socket do Docker dentro do container (isso equivaleria a dar root do host pra qualquer processo do code-server, superfície de ataque bem maior). Como o Bruno tem só **uma VPS** (diferente daqui, que tem duas com um hop via Tailscale no meio), o setup dele é mais direto: a chave aponta pro próprio host onde o code-server roda.
+
+**Dentro do container (code-server):**
+```bash
+ssh-keygen -t ed25519 -C "code-server@neria" -f ~/.ssh/id_ed25519_host -N ""
+cat ~/.ssh/id_ed25519_host.pub   # copiar a saída
+```
+
+**No terminal da Hostinger (host):**
+```bash
+mkdir -p /root/.ssh && chmod 700 /root/.ssh
+echo "<colar a chave pública copiada acima>" >> /root/.ssh/authorized_keys
+chmod 600 /root/.ssh/authorized_keys
+```
+
+**De volta no code-server, testar:**
+```bash
+ssh -i ~/.ssh/id_ed25519_host root@neria.tech "docker ps"
+```
+(ou usar o IP público da VPS em vez do domínio — funciona igual). Se quiser evitar digitar `-i` toda hora, adicionar um `Host` alias em `~/.ssh/config`:
+```
+Host host-vps
+  HostName neria.tech
+  User root
+  IdentityFile ~/.ssh/id_ed25519_host
+```
+Depois é só `ssh host-vps "docker ps"`.
+
+⚠️ **Trade-off consciente:** essa chave dá acesso root **completo** ao host a partir de dentro de um container exposto na internet (code-server). Se o code-server for comprometido, o host vai junto. Vale considerar, quando sobrar tempo: restringir a chave no `authorized_keys` com `command="..."` forçado (limitando a comandos tipo `docker ps`/`docker exec` em vez de shell livre) — não bloqueante pra começar, mas registrar como hardening futuro (ver seção 5).
+
+### 3.9 Banco de dados
 
 Provisionar um **PostgreSQL** via Coolify (`New Resource → Database → PostgreSQL`), no mesmo Project/Environment do code-server para compartilhar a rede Docker interna. Isso só entrega um banco vazio com uma `DATABASE_URL` — a modelagem de dados e o ORM continuam sendo decisão do Bruno junto com o Claude Code local, na sessão de brainstorming técnico (assumindo Postgres por ser o padrão de todos os outros projetos deste workspace; se preferirem outro banco, é só trocar aqui). Guardar a `DATABASE_URL` também em `~/.secrets/` (mesmo padrão do passo 3.4).
 
@@ -186,3 +223,23 @@ Provisionar um **PostgreSQL** via Coolify (`New Resource → Database → Postgr
 Dentro de `~/workspace/clinica-fisio-conciliacao`, com o Claude Code aberto:
 
 > "Lê o brief em `docs/superpowers/specs/2026-08-29-conciliacao-comissionamento-design.md` e vamos começar o brainstorming técnico da v1 a partir dele."
+
+## 5. Pendente pra depois — segurança da VPS e backups diários
+
+**Não bloqueia o início do desenvolvimento**, mas não pode ficar esquecido — revisitar antes de a VPS guardar dado real de paciente/pagamento (ou seja, ainda durante a v1, não depois). Itens a cobrir quando chegar a hora:
+
+**Segurança:**
+- SSH key-only no host: desabilitar `PasswordAuthentication` e configurar `PermitRootLogin prohibit-password` (ou melhor, criar um usuário próprio com sudo pra login humano e deixar root só pra automação, ex. o bridge da seção 3.8)
+- Firewall (`ufw`) no host — **atenção**: o Docker fura regras do `ufw` por padrão, então portas publicadas por container ficam expostas mesmo com o firewall "ativo". Precisa do `ufw-docker` (ou equivalente) pra fechar isso de verdade
+- `fail2ban` (ou similar) contra brute-force de SSH
+- Atualizações automáticas de segurança do Ubuntu (`unattended-upgrades`)
+- Restringir/considerar `command=` forçado na chave do bridge SSH da seção 3.8 (hardening do acesso root completo)
+- 2FA nas contas que controlam a infra: Hostinger, Cloudflare, GitHub (nível de conta, fora da VPS em si)
+- Revisão periódica dos tokens de API gerados (Coolify, Cloudflare) — rotacionar se algum vazar ou ficar tempo demais sem revisão
+
+**Backups diários:**
+- Banco de dados (Postgres) — `pg_dump` automatizado diário, ou usar o backup nativo do Coolify se o plano/versão oferecer
+- **Backup off-site obrigatório** — não deixar o backup só na mesma VPS; se a VPS cair ou for comprometida, perde o dado e o backup junto
+- Código-fonte já está coberto pelo GitHub (não precisa de backup adicional)
+- Secrets (`~/.secrets/`, chaves SSH) — considerar um backup criptografado separado, já que não vivem no Git
+- Monitorar espaço em disco (backup falho por disco cheio é um clássico)
