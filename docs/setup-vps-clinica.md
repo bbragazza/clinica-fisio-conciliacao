@@ -232,6 +232,31 @@ Dentro de `~/workspace/clinica-fisio-conciliacao`, com o Claude Code aberto:
 
 > "Lê o brief em `docs/superpowers/specs/2026-08-29-conciliacao-comissionamento-design.md` e vamos começar o brainstorming técnico da v1 a partir dele."
 
+## 4.1 Planilhas reais da clínica (modalidades de pagamento, conciliação, etc.) — NUNCA neste repositório
+
+O repositório `clinica-fisio-conciliacao` é **público** e é pra ficar só com spec e documentação de setup — sem dado de paciente/pagamento. As planilhas reais que a Berta e as secretárias administram devem ficar direto na VPS, **fora da pasta clonada do repo**:
+
+```bash
+mkdir -p ~/workspace/dados-clinica-fisio
+```
+
+Sugestão de organização por tipo (ajustar conforme forem chegando):
+```
+~/workspace/dados-clinica-fisio/
+├── modalidades-pagamento/
+├── conciliacao/
+└── (outras conforme aparecerem)
+```
+
+Pra subir os arquivos: arrastar e soltar direto no explorador de arquivos do code-server (navegador), sem precisar de `scp` nem nada externo.
+
+**Defesa extra, mesmo assim:** adicionar ao `.gitignore` do repo clonado uma trava contra erro humano (alguém colar um arquivo dentro da pasta do projeto por hábito):
+```bash
+echo -e "\n# nunca versionar dado real de paciente/pagamento\ndados-clinica-fisio/\n*.xlsx\n*.xls\n*.csv" >> ~/workspace/clinica-fisio-conciliacao/.gitignore
+```
+
+Quando for desenhar o modelo de dados com o Claude Code, é só apontar pra essa pasta como referência (ex: "olha os exemplos em `~/workspace/dados-clinica-fisio/` pra desenhar o schema de modalidades de pagamento").
+
 ## 5. Pendente pra depois — segurança da VPS e backups diários
 
 **Não bloqueia o início do desenvolvimento**, mas não pode ficar esquecido — revisitar antes de a VPS guardar dado real de paciente/pagamento (ou seja, ainda durante a v1, não depois). Itens a cobrir quando chegar a hora:
