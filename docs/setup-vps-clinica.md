@@ -1,59 +1,141 @@
 # Setup do ambiente — VPS Hostinger (Ubuntu + Coolify)
 
-Substitui o plano anterior de rodar local no Windows da clínica. Agora: VPS própria na Hostinger, Ubuntu já instalado, painel **Coolify** já instalado. Falta subir um **code-server** (VS Code no navegador) via Coolify pra o Bruno trabalhar de qualquer lugar, e a partir dali instalar o Claude Code.
+## Status em 30/08/2026
 
-## 0. Pré-requisitos já feitos
-- [x] VPS Hostinger contratada
-- [x] Ubuntu instalado
-- [x] Coolify instalado e painel acessível
+**✅ Já feito (terminal da Hostinger / host):**
+- VPS Hostinger com Ubuntu 24.04
+- Coolify instalado
+- Claude Code CLI instalado (assinatura Pro) — mas o uso do dia a dia **não vai ser aqui**, ver seção 1
+- Domínio `neria.tech`, DNS gerenciado no Cloudflare
+- Subdomínios `coolify.neria.tech` (painel Coolify) e `code.neria.tech` (code-server)
+- Code-server subido via Coolify
+- API tokens gerados: Coolify e Cloudflare
 
-## 1. Subir o code-server via Coolify
+**🔲 Falta (tudo dentro do terminal do code-server):** ver checklist na seção 3.
 
-No painel do Coolify:
+---
 
-1. **New Resource → Docker Image** (não precisa de repositório GitHub pra isso, é uma imagem pronta).
-2. Imagem: `codercom/code-server:latest`.
-3. **Variáveis de ambiente obrigatórias:**
-   - `PASSWORD=<uma senha forte>` — sem isso, ou com senha fraca, o code-server fica exposto na internet com acesso de shell completo. Gerar uma senha longa e aleatória (ex: `openssl rand -base64 24` em qualquer terminal) e guardar num cofre de senhas.
-   - (Opcional, mais seguro que `PASSWORD`) `HASHED_PASSWORD` com um hash argon2 — ver [docs oficiais do code-server](https://coder.com/docs/code-server/FAQ#can-i-hash-my-password).
-4. **Porta:** o code-server escuta na `8080` internamente — configurar isso como a porta exposta pelo Coolify.
-5. **Volume persistente:** mapear algo como `/home/coder/project` (ou o `$HOME` inteiro) pra um volume — sem isso, um redeploy do container apaga o trabalho.
-6. **Domínio:** se ainda não tiver um domínio pra clínica, não é bloqueante — o Coolify gera automaticamente uma URL tipo `algo.sslip.io` com HTTPS via Let's Encrypt. Dá pra trocar por um domínio próprio depois, sem re-trabalho.
-7. Deploy.
+## 1. Terminologia: terminal do host vs terminal do container
 
-⚠️ **Segurança:** isso deixa uma IDE completa (com terminal) exposta na internet, protegida só pela senha do passo 3. Pra hoje já é suficiente pra começar, mas vale, quando sobrar tempo, adicionar uma segunda camada — ex. IP allowlist no firewall do Coolify/Hostinger, ou basic auth do Traefik por cima (o próprio CLAUDE.md deste workspace tem um exemplo desse padrão, se quiser copiar a ideia).
+Duas coisas com nomes parecidos, ambientes completamente separados:
 
-## 2. Entrar no code-server
+| | Terminal da Hostinger (**host** / bare metal) | Terminal do code-server (**container**) |
+|---|---|---|
+| Como acessa | SSH `root@neria.tech` / painel da Hostinger | Navegador em `code.neria.tech` → terminal integrado do VS Code |
+| O que é | Ubuntu 24.04 "puro" da VPS, sem isolamento | Ambiente isolado (Docker) rodando dentro do host, gerenciado pelo Coolify |
+| Usuário | root (ou usuário com sudo pleno) | `coder`, com `sudo` sem senha pra tudo — na prática já é root completo pra qualquer comando |
+| `docker ps` mostra... | Todos os containers da VPS (Coolify, code-server, banco, Traefik) | Nada — não tem acesso ao Docker do host (isolamento normal, não precisa mexer nisso) |
+| Pra que serve | Manutenção de infraestrutura: Docker, Coolify, disco, rede, emergências | **Onde o Bruno trabalha no dia a dia**: `claude`, git, editar código, rodar o app |
+| O que foi instalado lá **não existe** aqui | — | Por isso o Claude Code do terminal da Hostinger não aparece dentro do code-server — precisa instalar de novo, dentro do container |
 
-Abrir a URL gerada pelo Coolify no navegador, digitar a senha do passo 1.3. Vai abrir um VS Code completo, com terminal integrado — é ali que o resto acontece.
+```
+┌──────────────────────────────────────────────────────────────┐
+│ VPS Hostinger — Ubuntu 24.04  ("host" / bare metal)            │
+│ Acesso: SSH root@neria.tech                                    │
+│ ✅ Coolify instalado · ✅ Claude Code CLI instalado (uso raro)  │
+│                                                                  │
+│  Docker Engine roda aqui e gerencia os containers:              │
+│  ┌─────────────────────┐   ┌──────────────────────────┐        │
+│  │ Container: Coolify    │   │ Container: code-server     │        │
+│  │ → coolify.neria.tech  │   │ → code.neria.tech          │        │
+│  │                       │   │ user coder (+sudo NOPASSWD)│        │
+│  │                       │   │ 🔲 Claude Code CLI          │        │
+│  │                       │   │ 🔲 Superpowers               │        │
+│  │                       │   │ 🔲 gh CLI + cofre ~/.secrets │        │
+│  │                       │   │ 🔲 Node + Playwright         │        │
+│  │                       │   │ 🔲 /workspace                │        │
+│  └─────────────────────┘   └──────────────────────────┘        │
+│  ┌─────────────────────┐                                       │
+│  │ Container: Postgres    │  🔲 a provisionar                    │
+│  └─────────────────────┘                                       │
+│                                                                  │
+│  Traefik (parte do Coolify) roteia os subdomínios por HTTPS —   │
+│  DNS de neria.tech gerenciado no Cloudflare                     │
+└──────────────────────────────────────────────────────────────┘
+```
 
-## 3. Instalar o Claude Code CLI
+Comando rápido pra saber onde você está, a qualquer momento:
+```bash
+id; hostname; sudo -n true 2>/dev/null && echo "sudo: SIM" || echo "sudo: NAO"; command -v docker >/dev/null && docker ps >/dev/null 2>&1 && echo "docker: SIM (terminal Hostinger/host)" || echo "docker: NAO (dentro do container code-server)"
+```
 
-A imagem `codercom/code-server` já vem com `git`, `curl` e `sudo` sem senha para o usuário padrão (`coder`) — não precisa instalar nada disso.
+## 2. Sobre "acesso root" no code-server
 
-No terminal integrado do code-server:
+A imagem oficial do code-server já roda com o usuário `coder`, que tem `sudo` **sem senha para qualquer comando** (`NOPASSWD:ALL`) — na prática, já é root completo para instalar pacotes, editar qualquer arquivo, etc. O processo web do code-server em si roda sem privilégio elevado, o que é mais seguro e não custa nada no uso do dia a dia. **Recomendação: manter assim**, em vez de forçar o container a rodar literalmente como root — não há ganho real e perde-se uma camada de proteção. Se algo específico exigir root "de verdade" mais adiante, revisitar.
+
+## 3. Checklist do que falta (tudo dentro do terminal do code-server, em `code.neria.tech`)
+
+### 3.1 ⚠️ Conferir o volume persistente ANTES de instalar qualquer coisa
+
+Se o volume do container do code-server no Coolify está mapeado só pra `/home/coder/project` (e não pro `$HOME` inteiro), tudo que for instalado fora dessa pasta — o binário do Claude Code (`~/.local/bin`), a autenticação do `gh` (`~/.config/gh`), o cofre de secrets (`~/.secrets`) — **some no próximo redeploy do container**. No painel do Coolify, no resource do code-server, conferir/ajustar o volume para cobrir `/home/coder` inteiro antes de seguir.
+
+### 3.2 Instalar o Claude Code CLI (agora dentro do container)
 
 ```bash
 curl -fsSL https://claude.ai/install.sh | bash
+echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc
+source ~/.bashrc
+claude --version
+claude   # segue o link de login (Pro já é suficiente)
 ```
 
-Isso instala o binário em `~/.local/bin/claude`, sem precisar de Node.js. Se depois de instalar o comando `claude` não for reconhecido, adicionar ao PATH:
+### 3.3 Estrutura de diretórios em `/workspace`
+
+Sugestão — o mesmo padrão usado neste workspace aqui (um `CLAUDE.md` global + uma pasta por projeto):
+
+```
+/home/coder/workspace/
+├── CLAUDE.md                      ← contexto global (ver esqueleto abaixo)
+└── clinica-fisio-conciliacao/     ← git clone do repo (item 1)
+    (futuramente: clinica-fisio-whatsapp/  ← item 2, quando chegar a vez)
+```
 
 ```bash
-echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc
+mkdir -p ~/workspace
+cd ~/workspace
+git clone https://github.com/bbragazza/clinica-fisio-conciliacao.git
+```
+
+Esqueleto sugerido pro `~/workspace/CLAUDE.md` (contexto que toda sessão de Claude Code ali vai carregar automaticamente — resolve de vez a confusão host×container pro Bruno, porque fica documentado e é lido sozinho no início de cada sessão):
+
+```markdown
+# Contexto do workspace — VPS neria.tech
+
+- Ambiente: code-server (container Docker via Coolify), acessível em code.neria.tech
+- Terminal da Hostinger (host, SSH root@neria.tech) é só pra manutenção de infra
+  (Docker/Coolify/disco) — o trabalho do dia a dia é sempre aqui dentro
+- Painel Coolify: coolify.neria.tech
+- Secrets em ~/.secrets/ (carregado automaticamente pelo .bashrc)
+- Projetos:
+  - clinica-fisio-conciliacao — app de conciliação/comissionamento (item 1)
+```
+
+### 3.4 Cofre de secrets (Coolify + Cloudflare)
+
+Mesmo padrão de `~/.secrets/` usado neste workspace aqui — dá pra copiar a ideia direto:
+
+```bash
+mkdir -p ~/.secrets && chmod 700 ~/.secrets
+
+cat > ~/.secrets/coolify.env << 'EOF'
+export COOLIFY_API_TOKEN="<colar aqui>"
+export COOLIFY_URL="https://coolify.neria.tech"
+EOF
+
+cat > ~/.secrets/cloudflare.env << 'EOF'
+export CLOUDFLARE_API_TOKEN="<colar aqui>"
+EOF
+
+chmod 600 ~/.secrets/*.env
+
+# carregar automaticamente em todo terminal novo
+echo 'set -a; for f in ~/.secrets/*.env; do [ -f "$f" ] && source "$f"; done; set +a' >> ~/.bashrc
 source ~/.bashrc
 ```
 
-Rodar:
+(O token do GitHub **não** precisa entrar aqui — o `gh auth login`, no próximo passo, guarda a própria autenticação em `~/.config/gh`, e isso já basta pro `gh`/`git` funcionarem.)
 
-```bash
-claude --version
-claude
-```
-
-Na primeira vez, o `claude` mostra um link de login — abrir esse link em qualquer navegador (celular, notebook, não precisa ser na mesma máquina) e logar com a conta Claude do Bruno (assinatura **Pro** já é suficiente pra começar, ver conversa anterior). A sessão no terminal completa sozinha depois do login.
-
-## 4. GitHub — instalar o `gh` CLI e autenticar
+### 3.5 GitHub CLI
 
 ```bash
 type -p curl >/dev/null || sudo apt install curl -y
@@ -64,52 +146,29 @@ sudo apt update && sudo apt install gh -y
 gh auth login
 ```
 
-`gh auth login` abre um fluxo por código (device flow) — mostra um código no terminal, você abre `github.com/login/device` em qualquer navegador e digita. Autentica como a própria conta do Bruno.
+Fluxo por código (device flow): mostra um código no terminal, abrir `github.com/login/device` em qualquer navegador e digitar. Necessário pra **push** no repositório — hoje ele é público, então `git clone` (feito no passo 3.3) já funciona sem login nenhum.
 
-> **Nota:** hoje o repositório `clinica-fisio-conciliacao` é público, então dar `git clone` **não exige login nenhum** — o `gh auth login` só é necessário se/quando o Bruno for **enviar (push)** mudanças de volta pro repositório (o que exige virar colaborador, ou trabalhar num fork — combinar isso quando chegar a hora).
+### 3.6 Plugin Superpowers
 
-## 5. Clonar o projeto
+Dentro de `~/workspace/clinica-fisio-conciliacao`, rodar `claude` e, na sessão:
 
-```bash
-git clone https://github.com/bbragazza/clinica-fisio-conciliacao.git ~/project
-cd ~/project
 ```
+/plugin
+```
+Se "superpowers" já aparecer em `claude-plugins-official`, instalar direto:
+```
+/plugin install superpowers@claude-plugins-official
+```
+Senão, registrar a marketplace do autor:
+```
+/plugin marketplace add obra/superpowers-marketplace
+/plugin install superpowers@superpowers-marketplace
+```
+**Não fazer os dois** — bug conhecido de colisão quando o plugin existe em duas marketplaces ao mesmo tempo (dá erro falso de "já instalado"). Verificar com `/help` (deve listar `/brainstorm`).
 
-(O caminho `~/project` já costuma ser o diretório padrão que o code-server abre — ajustar se necessário.)
+### 3.7 Node.js + Playwright
 
-## 6. Instalar o plugin Superpowers
-
-Dentro da pasta do projeto, rodar `claude` para abrir uma sessão. Dentro dela:
-
-1. Checar se já vem disponível por padrão:
-   ```
-   /plugin
-   ```
-   Se "superpowers" aparecer disponível em `claude-plugins-official`, instalar direto:
-   ```
-   /plugin install superpowers@claude-plugins-official
-   ```
-2. Se não aparecer, registrar a marketplace original do autor e instalar de lá:
-   ```
-   /plugin marketplace add obra/superpowers-marketplace
-   /plugin install superpowers@superpowers-marketplace
-   ```
-3. **Não fazer os dois ao mesmo tempo** — bug conhecido de colisão de nome quando o plugin existe em duas marketplaces simultaneamente (dá erro falso de "já instalado"). Se acontecer, conferir primeiro com `/plugin` qual marketplace já tem o plugin antes de adicionar a outra.
-4. Verificar: `/help` deve listar comandos como `/brainstorm`.
-
-Como o ambiente aqui já é Linux/Ubuntu nativo, não existe a ressalva de Git Bash que valia pro Windows — as skills do Superpowers (estilo Unix) rodam de forma nativa.
-
-## 7. Primeira interação sugerida
-
-Dentro da pasta do projeto, com o Claude Code aberto:
-
-> "Lê o brief em `docs/superpowers/specs/2026-08-29-conciliacao-comissionamento-design.md` e vamos começar o brainstorming técnico da v1 a partir dele."
-
-Isso deve puxar a skill de brainstorming automaticamente e levar a uma conversa sobre stack técnica, modelo de dados e telas — já com o Bruno no controle, com contexto real da VPS (Ubuntu + Coolify disponíveis para deploy, se quiser publicar a v1 em vez de rodar só localmente na VPS).
-
-## 8. Para depois (v1.1 — não fazer hoje)
-
-Quando chegar a hora de investigar a automação do ZenFisio (seção 4.1 do brief):
+Adiantando a dependência de v1.1 (extração automatizada do ZenFisio, seção 4.1 do brief) já que estamos deixando o ambiente pronto — o uso em si continua sendo depois:
 
 ```bash
 curl -fsSL https://deb.nodesource.com/setup_lts.x | sudo -E bash -
@@ -118,4 +177,12 @@ npm install -g playwright
 npx playwright install --with-deps
 ```
 
-Não instalar isso agora — só quando o núcleo da v1 (cadastro, cálculo, relatório) já estiver rodando.
+### 3.8 Banco de dados
+
+Provisionar um **PostgreSQL** via Coolify (`New Resource → Database → PostgreSQL`), no mesmo Project/Environment do code-server para compartilhar a rede Docker interna. Isso só entrega um banco vazio com uma `DATABASE_URL` — a modelagem de dados e o ORM continuam sendo decisão do Bruno junto com o Claude Code local, na sessão de brainstorming técnico (assumindo Postgres por ser o padrão de todos os outros projetos deste workspace; se preferirem outro banco, é só trocar aqui). Guardar a `DATABASE_URL` também em `~/.secrets/` (mesmo padrão do passo 3.4).
+
+## 4. Primeira interação sugerida
+
+Dentro de `~/workspace/clinica-fisio-conciliacao`, com o Claude Code aberto:
+
+> "Lê o brief em `docs/superpowers/specs/2026-08-29-conciliacao-comissionamento-design.md` e vamos começar o brainstorming técnico da v1 a partir dele."
