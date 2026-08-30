@@ -19,6 +19,8 @@ A clínica tem vários fisioterapeutas, cada um com sua agenda de pacientes. O p
 
 **Dor principal:** o cruzamento manual (ZenFisio × papel × relato do fisioterapeuta) é o ponto mais sujeito a erro do processo — sessão contada errada, divergência entre o que o fisioterapeuta diz e o que foi de fato registrado. O cálculo manual do repasse por fisioterapeuta também consome tempo de Berta.
 
+**Defeito específico do ZenFisio que motiva a mudança:** ele soma o total de sessões do paciente (ex: "fez 12 sessões") mas **não registra as datas de cada sessão individualmente** — o que torna quase impossível auditar se aquelas 12 sessões realmente aconteceram nos dias em que o paciente esteve na clínica. É exatamente esse buraco que o check-in por QR code (seção 3), com confirmação datada sessão a sessão, resolve na raiz.
+
 **Decisão de 30/08/2026:** em vez de automatizar por cima do ZenFisio, o cliente decidiu **substituí-lo inteiramente** pelo app novo — agenda, cadastro de profissionais e confirmação de atendimento passam a viver só aqui. Ver seção 3.
 
 ---
@@ -49,7 +51,13 @@ Escala: entre **10 e 15 profissionais**. Back-office usado por 1-2 pessoas (secr
   - **No fim da sessão:** o **fisioterapeuta** lê o **mesmo QR**, pelo celular → confirma "atendimento realizado", fechando o ciclo daquele agendamento específico.
   - **Sem geolocalização na v1** — só o QR mesmo (geolocalização combinada foi considerada e fica pra depois, ver seção 4).
   - Essa confirmação do fisioterapeuta **é** o registro de atendimento — não existe mais entrada manual olhando o ZenFisio na tela, porque o ZenFisio deixa de ser usado.
-- **Registro de pagamentos de pacientes** (valor, data, forma) — fonte exata ainda não confirmada com o Bruno (ver seção 6); **entrada manual em v1**.
+- **Catálogo de modalidades de pagamento**, configurável, cobrindo pelo menos as que já existem hoje:
+  - **Plano** (mensal / trimestral / semestral) — pago **antecipadamente**; regra de corte comum: precisa ser adquirido até o **dia 5 do mês** pra valer no mês corrente (confirmar se essa regra vale igual pra todos os planos ou varia por modalidade — ver seção 6).
+  - **Avulso** — paciente paga logo depois de cada consulta.
+  - **Pós-pago mensal** — paciente acumula as sessões do mês e paga tudo no fechamento.
+  - Cada modalidade tem seu(s) valor(es) associado(s), e **cada paciente é vinculado a uma modalidade** específica.
+  - Berta já tem uma **planilha própria** (fora do ZenFisio) com o catálogo completo de modalidades e valores — dá pra exportar/importar direto pra popular esse cadastro na v1, sem digitação manual do catálogo.
+- **Registro dos pagamentos efetivamente realizados** (valor, data, por paciente) — fonte exata ainda não 100% confirmada (ver seção 6); **entrada manual em v1**.
 - **Cálculo automático do repasse por fisioterapeuta**: sessões confirmadas via QR × valor × percentual do acordo daquele profissional, com **detalhamento por paciente/sessão** para permitir auditoria (poder responder "por que esse valor?" abrindo o detalhe).
 - **Relatório de repasse por fisioterapeuta** (visualização em tela + exportação, ex. PDF ou planilha). A transferência bancária em si continua manual, fora do app.
 - **Migração inicial de dados do ZenFisio** (cadastro de profissionais e agendas existentes) — ver seção 4.1 sobre como.
@@ -60,10 +68,14 @@ Escala: entre **10 e 15 profissionais**. Back-office usado por 1-2 pessoas (secr
 
 ## 4. Fora de escopo v1 (decisão deliberada, registrada para não se perder)
 
-### 4.1 Migração de dados do ZenFisio (não é mais "automação contínua")
-Como o ZenFisio deixa de ser usado, o problema muda de figura: não precisa mais de extração contínua pra validar atendimento (esse papel passa a ser do QR code, seção 3) — precisa só de uma **migração pontual** do cadastro de profissionais e das agendas já existentes, pra não começar do zero.
+### 4.1 Migração de dados existentes (não é mais "automação contínua")
+Como o ZenFisio deixa de ser usado, o problema muda de figura: não precisa mais de extração contínua pra validar atendimento (esse papel passa a ser do QR code, seção 3) — precisa só de uma **migração pontual**, antes do go-live. E são **fontes distintas**, a confirmar cada uma:
 
-**Primeiro passo, antes de decidir a técnica:** verificar se o ZenFisio tem alguma **função de exportação nativa** (CSV/Excel/relatório) de cadastro e agenda. Se tiver, a migração é simples (importar o arquivo). Se não tiver, cai no plano B já cogitado antes: **engenharia reversa via DevTools do navegador** (com credencial de admin) + **Playwright**, mas agora só para uma extração pontual de migração, não uma automação recorrente — risco e esforço bem menores que o cenário original.
+- **ZenFisio** — tem cadastro de profissionais e catálogo de atividades/valores. Confirmado que existe lá.
+- **Agenda (datas dos agendamentos)** — Berta acredita que a agenda de fato vive no **Google Calendar**, não no ZenFisio (a confirmar). Se for isso, a migração da agenda pode depender de exportação/API do Google Calendar em vez do ZenFisio.
+- **Catálogo de modalidades de pagamento e valores** — já existe numa planilha própria da Berta, fora do ZenFisio — exportação direta, sem necessidade de investigação técnica.
+
+**Primeiro passo, antes de decidir a técnica:** confirmar exatamente onde cada um desses três conjuntos vive hoje, e se há exportação nativa (CSV/Excel/relatório) em cada um — especialmente ZenFisio e Google Calendar. Se não houver exportação nativa em algum deles, plano B é engenharia reversa via DevTools do navegador (com credencial de admin) + **Playwright**, mas só para uma extração pontual de migração, não uma automação recorrente — risco e esforço bem menores que o cenário original.
 
 ### 4.2 Outros itens explicitamente fora da v1
 - **Autoagendamento do paciente** — considerado e descartado para v1: só secretária/Berta criam agendamentos (ver seção 2). Pode entrar em versão futura.
@@ -84,8 +96,10 @@ Os dois pesam igual:
 
 ## 6. Incógnitas a investigar cedo (não bloqueiam o início do trabalho, mas precisam de resposta logo)
 
-- **O ZenFisio tem função de exportação de cadastro/agenda?** (CSV, Excel, relatório) — decide se a migração inicial (seção 4.1) é simples ou exige engenharia reversa.
-- **Onde vive hoje o registro de pagamento dos pacientes?** Hipótese é que seja um sistema ou planilha separada — a confirmar com o Bruno. O app precisa, no mínimo, de uma tela para lançar esse dado manualmente enquanto isso não é confirmado/integrado.
+- **O ZenFisio tem função de exportação de cadastro/atividades?** (CSV, Excel, relatório) — decide se a migração desses dados (seção 4.1) é simples ou exige engenharia reversa.
+- **A agenda (datas dos agendamentos) vive de fato onde?** Berta acredita que seja no **Google Calendar**, não no ZenFisio, mas não tem certeza — confirmar. Se for Google Calendar, verificar exportação/API de lá também.
+- **A planilha de modalidades/valores da Berta também registra os pagamentos efetivamente realizados** (data, valor, por paciente), ou só o catálogo de planos e a modalidade escolhida por cada paciente? Se só o catálogo, o lançamento do pagamento em si (avulso pós-consulta, ou fechamento do mês) ainda precisa de um local de registro — provavelmente entrada manual no app na v1.
+- **A regra do "dia 5 do mês" pra aderir a um plano** — vale igual pra mensal, trimestral e semestral, ou varia por modalidade?
 - **Lista completa dos fisioterapeutas e o percentual de acordo de cada um** — confirmar com Berta.
 - **Formato de exportação do relatório de repasse** que for mais útil pra Berta (PDF? Excel? os dois?) — decidir com ela ao ver o primeiro protótipo.
 - **Como o fisioterapeuta vai acessar o app pelo celular** (PWA, web responsivo, app nativo) — decisão técnica do Bruno na sessão local, mas registrar aqui que é um requisito de negócio (precisa funcionar bem no celular), não um "nice to have".
@@ -106,7 +120,7 @@ Os dois pesam igual:
 1. Setup do ambiente: ver `docs/setup-vps-clinica.md` neste mesmo repositório.
 2. Abrir o Claude Code na pasta do projeto e pedir para ele **ler este brief**.
 3. Rodar um novo ciclo de brainstorming a partir daqui — agora sim decidindo, junto com o Claude Code local: stack técnica, modelo de dados (agenda + QR + comissionamento), telas, e como o fisioterapeuta vai acessar pelo celular. O Superpowers vai puxar a skill de brainstorming automaticamente.
-4. Investigar cedo a exportação do ZenFisio (seção 6) — decide o tamanho do trabalho de migração antes de fechar o modelo de dados.
+4. Investigar cedo as três fontes de migração — ZenFisio (cadastro/atividades), Google Calendar (agenda, a confirmar) e a planilha da Berta (modalidades de pagamento) — seção 6, decide o tamanho do trabalho de migração antes de fechar o modelo de dados.
 5. Confirmar com Berta as demais incógnitas da seção 6 antes ou durante essa conversa.
 6. Tratar como v1: cadastro + agenda + QR check-in/confirmação + pagamento manual + cálculo + relatório. Autoagendamento, geolocalização e o Item 2 ficam pra depois (seção 7).
 
@@ -116,3 +130,4 @@ Os dois pesam igual:
 
 - **29/08/2026** — versão inicial: back-office (secretária + Berta), entrada manual olhando ZenFisio, sem agenda própria, sem acesso de fisioterapeuta.
 - **30/08/2026** — cliente decide abandonar o ZenFisio por completo. Agenda e confirmação de atendimento via QR code passam a ser parte do núcleo da v1; fisioterapeuta vira usuário ativo (celular). Migração de dados do ZenFisio substitui a automação de extração contínua que estava planejada.
+- **30/08/2026 (2)** — detalhamento das modalidades de pagamento (plano mensal/trimestral/semestral antecipado com regra do dia 5, avulso, pós-pago mensal) e catálogo próprio da Berta pra importar. Identificado que a agenda pode viver no Google Calendar em vez do ZenFisio (a confirmar) — migração passa a ter três fontes possíveis em vez de uma só.
