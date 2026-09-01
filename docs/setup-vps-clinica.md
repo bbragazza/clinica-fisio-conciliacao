@@ -179,6 +179,23 @@ Senão, registrar a marketplace do autor:
 ```
 **Não fazer os dois** — bug conhecido de colisão quando o plugin existe em duas marketplaces ao mesmo tempo (dá erro falso de "já instalado"). Verificar com `/help` (deve listar `/brainstorm`).
 
+### 3.6.1 Status line personalizada (opcional)
+
+Statusline usada no workspace principal — mostra modelo, agente ativo, diretório, branch, custo, % de contexto usado e reset dos rate limits (5h/7d), tudo no fuso de Brasília. Os arquivos-fonte estão em [`docs/claude-code-statusline/`](claude-code-statusline/) neste repo.
+
+```bash
+mkdir -p ~/.claude/hooks
+cp ~/workspace/clinica-fisio-conciliacao/docs/claude-code-statusline/statusline-command.sh ~/.claude/statusline-command.sh
+cp ~/workspace/clinica-fisio-conciliacao/docs/claude-code-statusline/hooks/track-agents.cjs ~/.claude/hooks/track-agents.cjs
+chmod +x ~/.claude/statusline-command.sh
+
+which jq >/dev/null || sudo apt install -y jq
+```
+
+Depois, editar `~/.claude/settings.json` (se já existir, fazer **merge** — não sobrescrever) com o conteúdo de [`settings-snippet.json`](claude-code-statusline/settings-snippet.json): a chave `statusLine` e os hooks `UserPromptSubmit`/`SubagentStart` do `track-agents.cjs`. Fechar e reabrir o Claude Code pra pegar a config nova.
+
+Sem o hook `track-agents.cjs`, a statusline funciona igual — só a coluna de "agente ativo" sempre mostra `-`.
+
 ### 3.7 Node.js + Playwright
 
 Adiantando a dependência de v1.1 (extração automatizada do ZenFisio, seção 4.1 do brief) já que estamos deixando o ambiente pronto — o uso em si continua sendo depois:
